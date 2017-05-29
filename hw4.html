@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<!-- HW3 Assignment - September, 2016 - Louis Vu -->
+<head>
+    <meta name="description" content="[add your bin description]">
+    <meta charset="utf-8">
+    <title>HW4 - Walking Mechanics</title>
+    <!-- you need to load TWGL from somewhere -
+      -- this grabs it from the CS server, which
+      -- might take a while
+      -->
+    <canvas id="myCanvas"
+            width="900" height="550"
+            style="border:1px solid #000;">
+    </canvas><br/>
+    Pan Cam: <input id="slider1" type="range" min="-500" max="500" />
+    Tilt Cam: <input id="slider2" type="range" min="-100" max="600" step="10"/>
+    Robot Pace:    <input id="slider3" type="range" min="0" max=".06" step = ".001"/>
+    Zoom:    <input id="slider4" type="range" min="30" max="400" step = "1"/>
+    <script src = "drawhead.js"></script>
+    <script src = "drawbody.js"></script>
+    <script src = "drawhand.js"></script>
+    <script src = "drawcylinder.js"></script>
+    <script src = "drawfoot.js"></script>
+    <script src="http://graphics.cs.wisc.edu/JS/twgl-full.min.js"></script>
+</head>
+<body>
+<script>
+    var canvas = document.getElementById('myCanvas');
+    var context = canvas.getContext('2d');
+    var m4 = twgl.m4;
+
+    var slider1 = document.getElementById('slider1');
+    slider1.value = 0;
+    var slider2 = document.getElementById('slider2');
+    slider2.value = 300;
+    var slider3 = document.getElementById('slider3');
+    slider3.value = .05;
+    var slider4 = document.getElementById('slider4');
+    slider4.value = 200;
+    var shiftX = 0;//200;
+    var shiftY = 0;
+    var shiftZ = 0;
+    var shiftRLeg = 0;
+    var shiftLLeg = 0;
+    var stack = [];
+
+    var raVal = 5.8;
+    var raInc = .05;
+    var laVal = 7.5;
+    var laInc = -.05;
+
+    var R_ForePos = -7.5;
+    var L_ForePos = -7.5;
+    var RF_Inc = -.08;
+    var LF_Inc = .08;
+
+    var RA_Movback = 0;
+    var LA_Movback = 0;
+
+    var LFoot_Tilt = 0;
+    var RFoot_Tilt = 0;
+    var LFoot_Inc = .06;
+    var RFoot_Inc = -.06;
+    var feetSmooth = .13;
+
+    var walkAround = 0;
+
+    var revolveBody = 6.65;
+    var revolveBody_Inc = -.02;
+
+    var rightLegPos = -7.5;
+    var leftLegPos = -7.5;
+    var leftLegSmooth = .08;
+    var rightLegSmooth = -.08;
+
+    var eye;
+    var Tcamera;
+
+    function calcDist(x, y, z, Tx){
+        return Math.sqrt(Math.pow((x-eye[0]), 2) + Math.pow((y-eye[1]),2) + Math.pow((z-eye[2]),2));
+
+    }
+    function calcColor(x, y, z, Tx){
+        var loc = [x,y,z];
+        var locTx = m4.transformPoint(Tx,loc);
+        var eye1 = m4.transformPoint(Tx,eye);
+        var val =  Math.sqrt(Math.pow((locTx[0] + 100), 2) + Math.pow((locTx[2] - 250),2));
+        if(val > 255) {
+            return 255;
+        } else if(val < 140){
+            return 140;
+        }
+        else {
+            return val;
+        }
+    }
+    function moveToTx(x,y,z,Tx) {
+        var loc = [x,y,z];
+        var locTx = m4.transformPoint(Tx,loc);
+        context.moveTo(locTx[0]+400,-locTx[1]+300);
+    }
+
+    function lineToTx(x,y,z,Tx) {
+        var loc = [x,y,z];
+        var locTx = m4.transformPoint(Tx,loc);
+        context.lineTo(locTx[0]+400,-locTx[1]+300);
+    }
+
+    function drawAxes(Tx) {
+        moveToTx(0,0,0,Tx);lineToTx(50,0,0,Tx);context.stroke();
+        moveToTx(0,0,0,Tx);lineToTx(0,150,0,Tx);context.stroke();
+        moveToTx(0,0,0,Tx);lineToTx(0,0,250,Tx);context.stroke();
+    }
+
+    function drawNeck(Tx) {
+        // draw neck
+        Tx = m4.translate(Tx, [0 + shiftX, 215 + shiftY, 0 + shiftZ]);
+        drawCyl( 0, 0, 0, 20, 15,Tx, Math.floor(calcColor(0,-7.5,0,Tx)));
+        Tx = stack.shift(); // "restore"
+    }
+    function rightArm(Tx) {
+        //var should_to_elbow_canvas = m4.translation();
+        // Shoulder to elbow size is 100
+        // Shoulder size is 50
+        Tx = m4.translate(Tx, [65 + shiftX, 185 + shiftY, shiftZ]);
+        var Tx1 = m4.axisRotate(Tx, [1,0,0],-raVal);
+        //drawCyl(0 , 0, 0, 15, 50, Tx1);
+        var Tx2 = m4.translate(Tx1, [0, -50, 0]);
+        //stack.unshift(stack[0]); //save
+        //drawCyl(0, 0, 0, 15, 50, Tx2);
+        var Tx3 = m4.translate(Tx2, [0, -50, 0]);
+        Tx3 = m4.axisRotate(Tx3, [1,0,0],R_ForePos);
+        //drawCyl(0, 0, 0, 15, 50, Tx3);
+        var Tx4 = m4.translate(Tx3, [0, -50, 0]);
+        //drawHand(0, 0, 0, 15, Tx);
+        Tx = stack.shift(); // "restore"
+
+        var list = {"shoulder": calcDist(0,-25,0,Tx1), "upperarm": calcDist(0,-25,0,Tx2),
+            "lowerarm": calcDist(0,-25,0,Tx3), "hand": calcDist(0,-12.5,0,Tx4)};
+        var keysSorted = Object.keys(list).sort(function(a,b){return list[a]-list[b]});
+        for(var i = keysSorted.length - 1; i >= 0; i--){
+            if(keysSorted[i] == "shoulder"){
+                drawCyl(0, 0, 0, 15, 50, Tx1, Math.floor(calcColor(0,-25,0,Tx1)));
+            }
+            if(keysSorted[i] == "upperarm"){
+                drawCyl(0, 0, 0, 15, 50, Tx2, Math.floor(calcColor(0,-25,0,Tx2)));
+            }
+            if(keysSorted[i] == "lowerarm"){
+                drawCyl(0, 0, 0, 15, 50, Tx3, Math.floor(calcColor(0,-25,0,Tx3)));
+            }
+            if(keysSorted[i] == "hand"){
+                drawHand(0, 0, 0, 15, Tx4, Math.floor(calcColor(0,-12.5,0,Tx4)));
+            }
+        }
+    }
+    function leftArm(Tx) {
+        // Shoulder to elbow size is 100
+        // Shoulder size is 50
+        Tx = m4.translate(Tx, [-65 + shiftX, 185 + shiftY, shiftZ]);
+        var Tx1 = m4.axisRotate(Tx, [1,0,0],-laVal);
+        var Tx2 = m4.translate(Tx1, [0, -50, 0]);
+        var Tx3 = m4.translate(Tx2, [0, -50, 0]);
+        Tx3 = m4.axisRotate(Tx3, [1,0,0],L_ForePos);
+        var Tx4 = m4.translate(Tx3, [0, -50, 0]);
+
+        var list = {"shoulder": calcDist(0,-25,0,Tx1), "upperarm": calcDist(0,-25,0,Tx2),
+            "lowerarm": calcDist(0,-25,0,Tx3), "hand": calcDist(0,-12.5,0,Tx4)};
+        var keysSorted = Object.keys(list).sort(function(a,b){return list[a]-list[b]});
+        for(var i = keysSorted.length - 1; i >= 0; i--){
+            if(keysSorted[i] == "shoulder"){
+                drawCyl(0, 0, 0, 15, 50, Tx1, Math.floor(calcColor(0,-25,0,Tx1)));
+            }
+            if(keysSorted[i] == "upperarm"){
+                drawCyl(0, 0, 0, 15, 50, Tx2, Math.floor(calcColor(0,-25,0,Tx2)));
+            }
+            if(keysSorted[i] == "lowerarm"){
+                drawCyl(0, 0, 0, 15, 50, Tx3, Math.floor(calcColor(0,-25,0,Tx3)));
+            }
+            if(keysSorted[i] == "hand"){
+                drawHand(0, 0, 0, 15, Tx4, Math.floor(calcColor(0,-12.5,0,Tx4)));
+            }
+        }
+    }
+    function rightLeg(Tx){
+        Tx = m4.translate(Tx, [25 + shiftX, 50 + shiftY, shiftZ]);
+        var Tx1 = m4.axisRotate(Tx, [1, 0, 0], -laVal);
+        drawCyl(0, 0, 0, 20, 100, Tx1);
+        var Tx2 = m4.translate(Tx1, [0, -100, 0]);
+        Tx2 = m4.axisRotate(Tx2, [1, 0, 0], -rightLegPos);
+        drawCyl(0, 0, 0, 20, 75, Tx2);
+        var Tx3 = m4.translate(Tx2, [0, -75, 0]);
+        Tx3 = m4.axisRotate(Tx3, [1, 0 ,0], RFoot_Tilt);
+        drawFoot(0, 0, 0, 20, Tx3);
+
+        var list = {"upperleg": calcDist(0,-50,0,Tx1), "lowerleg": calcDist(0,-50,0,Tx2),
+            "foot": calcDist(0,-12.5,-50,Tx3)};
+        var keysSorted = Object.keys(list).sort(function(a,b){return list[a]-list[b]});
+        for(var i = keysSorted.length - 1; i >= 0; i--){
+            if(keysSorted[i] == "upperleg"){
+                drawCyl(0, 0, 0, 20, 100, Tx1, Math.floor(calcColor(0,-50,0,Tx1)));
+            }
+            if(keysSorted[i] == "lowerleg"){
+                drawCyl(0, 0, 0, 20, 75, Tx2, Math.floor(calcColor(0,-37.5,0,Tx2)));
+            }
+            if(keysSorted[i] == "foot"){
+                drawFoot(0, 0, 0, 20, Tx3, Math.floor(calcColor(0,-12.5,0,Tx3)));
+            }
+        }
+    }
+    function leftLeg(Tx){
+        Tx = m4.translate(Tx, [-25 + shiftX, 50 + shiftY, shiftZ]);
+        var Tx1 = m4.axisRotate(Tx, [1, 0, 0], -raVal);
+        var Tx2 = m4.translate(Tx1, [0, -100, 0]);
+        Tx2 = m4.axisRotate(Tx2, [1, 0, 0], -leftLegPos);
+        var Tx3 = m4.translate(Tx2, [0, -75, 0]);
+        Tx3 = m4.axisRotate(Tx3, [1, 0 ,0], LFoot_Tilt);
+
+        var list = {"upperleg": calcDist(0,-50,0,Tx1), "lowerleg": calcDist(0,-50,0,Tx2),
+            "foot": calcDist(0,-12.5,-50,Tx3)};
+        var keysSorted = Object.keys(list).sort(function(a,b){return list[a]-list[b]});
+        for(var i = keysSorted.length - 1; i >= 0; i--){
+            if(keysSorted[i] == "upperleg"){
+                drawCyl(0, 0, 0, 20, 100, Tx1,Math.floor(calcColor(0,-50,0,Tx1)));
+            }
+            if(keysSorted[i] == "lowerleg"){
+                drawCyl(0, 0, 0, 20, 75, Tx2,Math.floor(calcColor(0,-37.5,0,Tx2)));
+            }
+            if(keysSorted[i] == "foot"){
+                drawFoot(0, 0, 0, 20, Tx3,Math.floor(calcColor(0,-12.5,0,Tx3)));
+            }
+        }
+    }
+    setInterval(function() {
+        // hack to clear the canvas fast
+        canvas.width = canvas.width;
+        raVal = raVal + raInc;
+        laVal = laVal + laInc;
+        if(raVal > 7.5 || raVal < 5.8){
+            raInc = (-1)*raInc;
+            RA_Movback = (RA_Movback + 1) % 2;
+            RF_Inc = (-1)*RF_Inc;
+            RFoot_Inc = (-1)*RFoot_Inc;
+            revolveBody_Inc = (-1)*revolveBody_Inc;
+            rightLegSmooth = (-1)*rightLegSmooth;
+        }
+        if(laVal > 7.5 || laVal < 5.8){
+            laInc = (-1)*laInc;
+            LA_Movback = (LA_Movback + 1) % 2;
+            LF_Inc = (-1)*LF_Inc;
+            LFoot_Inc = (-1)*LFoot_Inc;
+            leftLegSmooth = (-1)*leftLegSmooth;
+        }
+
+        // Move Forearms and lower legs
+        if( raVal < 6.5){
+            R_ForePos = R_ForePos + RF_Inc;
+            rightLegPos = rightLegPos + rightLegSmooth;
+        }
+        if( raVal > 6.5) {
+            R_ForePos = -7.4;
+            rightLegPos = -7.4;
+        }
+        if( laVal < 6.5){
+            L_ForePos = L_ForePos + LF_Inc;
+            leftLegPos = leftLegPos + leftLegSmooth;
+        }
+        if( laVal > 6.5) {
+            L_ForePos = -7.4;
+            leftLegPos = -7.4;
+        }
+
+        // Move feet
+        if( raVal > 6.2 && raVal < 7.2 && RA_Movback == 0){
+            RFoot_Tilt = RFoot_Tilt + RFoot_Inc;
+        }
+        // Smooth out right foot movement
+        if(raVal > 7.2){
+            RFoot_Tilt = RFoot_Tilt + feetSmooth;
+        }
+        if( raVal < 6.2) {
+            RFoot_Tilt = 0;
+        }
+        if( laVal > 6.2 && laVal < 7.2 && LA_Movback == 1){
+            LFoot_Tilt = LFoot_Tilt + LFoot_Inc;
+        }
+        // Smooth out left foot movement
+        if(laVal > 7.2){
+            LFoot_Tilt = LFoot_Tilt + feetSmooth;
+        }
+        if( laVal < 6.2) {
+            LFoot_Tilt = 0;
+        }
+
+        // revolve body movement
+        revolveBody = revolveBody + revolveBody_Inc;
+
+        var axis = [1,1,1];
+
+        var Tmodel=m4.axisRotation(axis,0);
+
+        walkAround = walkAround - slider3.value;
+        eye=[500*Math.cos(walkAround),slider2.value,500*Math.sin(walkAround)];
+
+        var target=[0,0,slider1.value];
+        var up=[0,1,0];
+        Tcamera = m4.inverse(m4.lookAt(eye,target,up));
+        var Tviewport=m4.multiply(m4.scaling([slider4.value, slider4.value,slider4.value]),m4.translation([150,100,0]));
+        var Tprojection=m4.perspective(Math.PI/3,1,5,400);
+        var Tcpv=m4.multiply(m4.multiply(Tcamera,Tprojection),Tviewport);
+        var Tmcp=m4.multiply(m4.multiply(Tmodel,Tcamera),Tprojection);
+        var Tmcpv=m4.multiply(Tmodel,Tcpv);
+
+        var Tmodelview = m4.multiply(Tmodel,Tcamera);
+
+
+        stack.unshift(Tmodelview);
+
+//        var Tmodelview1 = m4.axisRotate(Tmodelview,[0,1,0], walkAround);//Walk body in circles
+        var Tmodelview1 = m4.translate(Tmcpv,[250,0,0]);//radius of walk
+        var Tmodelview1 = m4.axisRotate(Tmodelview1,[0,1,0], revolveBody);//revolve body back and forth
+        var Tmodelview1 = m4.axisRotate(Tmodelview1, [1,0,0],.2);// tilt body slightly forward
+
+        // var Tmodelview = m4.axisRotate(Tmodelview, [0, 1, 0], walkAround);//walk legs in circles
+        var Tmodelview = m4.translate(Tmcpv,[250,0,5]);// radius of walk
+
+        // Order that figure should be drawn
+        var list = {"head": calcDist(0,225,0,Tmodelview), "neck": calcDist(0,207.5,0,Tmodelview),
+            "body": calcDist(0,185,0,Tmodelview), "rightarm": calcDist(65,185,0,Tmodelview),
+            "leftarm": calcDist(-65,185,0,Tmodelview), "rightleg": calcDist(25,40,0,Tmodelview),"leftleg": calcDist(-25,40,0,Tmodelview1)};
+        var keysSorted = Object.keys(list).sort(function(a,b){return list[a]-list[b]});
+
+        for(var i = keysSorted.length - 1; i >= 0; i--){
+            if(keysSorted[i] == "head"){
+                drawHead(Tmodelview1);
+            }
+            if(keysSorted[i] == "body"){
+                drawBody(Tmodelview1);
+            }
+            if(keysSorted[i] == "neck"){
+                drawNeck(Tmodelview1);
+            }
+            if(keysSorted[i] == "rightarm"){
+                rightArm(Tmodelview1);
+            }
+            if(keysSorted[i] == "leftarm"){
+                leftArm(Tmodelview1);
+            }
+            if(keysSorted[i] == "rightleg"){
+                rightLeg(Tmodelview);
+            }
+            if(keysSorted[i] == "leftleg"){
+                leftLeg(Tmodelview);
+            }
+        }
+        //drawAxes(Tcpv);
+    },30);
+</script>
+</body>
+</html>
